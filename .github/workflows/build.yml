@@ -191,7 +191,18 @@ jobs:
       - name: Сборка
         working-directory: kernel
         run: |
-          $MK KCFLAGS="-Wno-error" -j"$(nproc)" Image.gz-dtb 2>&1 | tee ../build.log | grep -vE 'ignoring type redefinition' | tail -n 40
+          set +e
+          $MK KCFLAGS="-Wno-error" -j"$(nproc)" Image.gz-dtb > ../build.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::group::Первые ошибки из полного лога"
+            grep -vE 'ignoring type redefinition' ../build.log | grep -nE 'error:|\*\*\* \[|Error [0-9]|undefined|No rule|ERROR \(' | head -n 40
+            echo "::endgroup::"
+            echo "=== повтор в один поток: ошибка будет в конце ==="
+            $MK KCFLAGS="-Wno-error" -j1 Image.gz-dtb 2>&1 | grep -vE 'ignoring type redefinition|warning:' | tail -n 60
+            exit 1
+          fi
+          grep -vE 'ignoring type redefinition' ../build.log | tail -n 5
           test -f out/arch/arm64/boot/Image.gz-dtb
 
       - name: dtbo из исходников (панели LOLZ)
