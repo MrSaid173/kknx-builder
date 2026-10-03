@@ -26,3 +26,35 @@ elif s.count(old) == 1:
 else:
     print("[ОШИБКА] zram_drv.c: не нашёл строку default_compressor", file=sys.stderr)
     sys.exit(1)
+
+
+# --- lib/zstd: дубли символов при встроенных compress + decompress ---
+# В этом дереве (zstd в стиле 4.14) общие файлы входят в ОБА составных объекта. Когда compress и decompress
+# встроены (=y, так делает CRYPTO_ZSTD=y), lld при сборке lib/zstd/built-in.o падает: duplicate symbol.
+# Решение: в этом случае общие файлы собираются один раз (zstd_shared.o). Для =m остаётся как было.
+mk = p.parents[3] / "lib/zstd/Makefile"
+orig_tail = (
+    "zstd_compress-y := fse_compress.o huf_compress.o compress.o \\\n"
+    "\t\t   entropy_common.o fse_decompress.o zstd_common.o\n"
+    "zstd_decompress-y := huf_decompress.o decompress.o \\\n"
+    "\t\t     entropy_common.o fse_decompress.o zstd_common.o\n"
+)
+fixed_tail = (
+    "ifeq ($(CONFIG_ZSTD_COMPRESS)$(CONFIG_ZSTD_DECOMPRESS),yy)\n"
+    "# KKNX: оба встроены -> общие файлы линкуются один раз (иначе ld.lld: duplicate symbol)\n"
+    "obj-y += zstd_shared.o\n"
+    "zstd_shared-y := entropy_common.o fse_decompress.o zstd_common.o\n"
+    "zstd_compress-y := fse_compress.o huf_compress.o compress.o\n"
+    "zstd_decompress-y := huf_decompress.o decompress.o\n"
+    "else\n" + orig_tail + "endif\n"
+)
+m = mk.read_text()
+if "zstd_shared" in m:
+    print("[lolz-full] lib/zstd/Makefile: уже")
+elif m.count(orig_tail) == 1:
+    mk.write_text(m.replace(orig_tail, fixed_tail))
+    print("[lolz-full] lib/zstd/Makefile: общие файлы zstd линкуются один раз")
+else:
+    print("[ОШИБКА] lib/zstd/Makefile не такой, как ожидалось", file=sys.stderr)
+    sys.exit(1)
+       
